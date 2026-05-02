@@ -1,0 +1,106 @@
+@model ProductionSystem.Models.Product
+@{
+    ViewData["Title"] = "Редактировать продукт";
+    var materials = ViewBag.Materials as List<ProductionSystem.Models.Material> ?? new();
+}
+
+<div class="breadcrumb">
+    <a href="/Products">Продукты</a>
+    <span class="breadcrumb-sep">›</span>
+    <span class="breadcrumb-current">Редактировать: @Model.Name</span>
+</div>
+
+<div style="max-width:780px;">
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">Редактировать продукт</div>
+        </div>
+        <div class="card-body">
+            <form method="post" action="/Products/Edit/@Model.Id">
+                @Html.AntiForgeryToken()
+                <input type="hidden" asp-for="Id" />
+                <div class="form-grid">
+                    <div class="form-group full">
+                        <label class="form-label">Название *</label>
+                        <input asp-for="Name" class="form-control" />
+                        <span asp-validation-for="Name" class="invalid-feedback"></span>
+                    </div>
+                    <div class="form-group full">
+                        <label class="form-label">Описание</label>
+                        <textarea asp-for="Description" class="form-control" rows="2"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Категория</label>
+                        <input asp-for="Category" class="form-control" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Время производства (мин/шт)</label>
+                        <input asp-for="ProductionTimePerUnit" class="form-control" type="number" min="1" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Минимальный запас (шт)</label>
+                        <input asp-for="MinimalStock" class="form-control" type="number" min="0" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Характеристики (JSON)</label>
+                        <input asp-for="Specifications" class="form-control" />
+                    </div>
+                </div>
+
+                <div style="margin-top:22px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                        <div class="card-title">Необходимые материалы</div>
+                        <button type="button" class="btn btn-outline btn-sm" onclick="addMatRow()">+ Добавить</button>
+                    </div>
+                    <div id="matRows">
+                        @foreach (var pm in Model.ProductMaterials)
+                        {
+                            <div class="mat-row-editor" data-existing="true">
+                                <select name="materialIds" class="form-control" style="flex:2">
+                                    @foreach (var m in materials)
+                                    {
+                                        <option value="@m.Id" selected="@(m.Id == pm.MaterialId)">@m.Name (@m.UnitOfMeasure)</option>
+                                    }
+                                </select>
+                                <input name="quantities" type="number" class="form-control" style="flex:1"
+                                       step="0.001" min="0.001" value="@pm.QuantityNeeded" />
+                                <button type="button" class="btn-remove-mat" onclick="this.parentElement.remove()">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div style="display:flex;gap:10px;margin-top:22px;">
+                    <button type="submit" class="btn btn-primary btn-lg">Сохранить</button>
+                    <a href="/Products" class="btn btn-outline btn-lg">Отмена</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+const materials = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+    materials.Select(m => new { m.Id, m.Name, m.UnitOfMeasure })
+));
+
+function addMatRow() {
+    const container = document.getElementById('matRows');
+    const div = document.createElement('div');
+    div.className = 'mat-row-editor';
+    const opts = materials.map(m => `<option value="${m.id}">${m.name} (${m.unitOfMeasure})</option>`).join('');
+    div.innerHTML = `
+        <select name="materialIds" class="form-control" style="flex:2">
+            <option value="">— выберите материал —</option>${opts}
+        </select>
+        <input name="quantities" type="number" class="form-control" style="flex:1" step="0.001" min="0.001" value="1" />
+        <button type="button" class="btn-remove-mat" onclick="this.parentElement.remove()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>`;
+    container.appendChild(div);
+}
+</script>
+}

@@ -1,0 +1,159 @@
+@model IEnumerable<ProductionSystem.Models.ProductionLine>
+@{
+    ViewData["Title"] = "Производственные линии";
+}
+
+<div class="page-header">
+    <div>
+        <h1>Производственные линии</h1>
+        <p>Управление линиями, расписание и эффективность</p>
+    </div>
+    <a href="/Lines/Create" class="btn btn-primary btn-lg">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Добавить линию
+    </a>
+</div>
+
+@if (!Model.Any())
+{
+    <div class="card">
+        <div class="card-body">
+            <div class="empty-state">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                <p>Линий не добавлено</p>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="lines-grid">
+        @foreach (var line in Model)
+        {
+            bool isActive = line.Status == "Active";
+            <div class="line-card">
+                <div class="line-card-header">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span class="line-status-dot @(isActive ? "dot-active" : "dot-stopped")"></span>
+                        <strong style="font-size:14px">@line.Name</strong>
+                    </div>
+                    @Html.Partial("_StatusBadge", line.Status)
+                </div>
+                <div class="line-card-body">
+                    <!-- Info rows -->
+                    <div class="line-info-row">
+                        <span class="line-info-label">Эффективность</span>
+                        <span>×@line.EfficiencyFactor.ToString("0.00")</span>
+                    </div>
+                    <div class="line-info-row">
+                        <span class="line-info-label">Текущий заказ</span>
+                        <span>
+                            @if (line.CurrentWorkOrder != null)
+                            {
+                                <span class="badge badge-info">#@line.CurrentWorkOrder.Id — @line.CurrentWorkOrder.Product?.Name</span>
+                            }
+                            else
+                            {
+                                <span style="color:var(--text-muted)">свободна</span>
+                            }
+                        </span>
+                    </div>
+
+                    @if (line.CurrentWorkOrder != null)
+                    {
+                        <div style="margin-top:10px;">
+                            <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted);margin-bottom:4px;">
+                                <span>Прогресс</span>
+                                <span>@line.CurrentWorkOrder.Progress%</span>
+                            </div>
+                            <div class="progress-bar-wrap" style="height:10px">
+                                <div class="progress-bar-fill @(line.CurrentWorkOrder.Progress > 60 ? "green" : "orange")"
+                                     style="width:@line.CurrentWorkOrder.Progress%"></div>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- Controls -->
+                    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+                        @if (isActive)
+                        {
+                            <form method="post" action="/Lines/SetStatus">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="id" value="@line.Id" />
+                                <input type="hidden" name="status" value="Stopped" />
+                                <button type="submit" class="btn btn-warning btn-sm">⏸ Остановить</button>
+                            </form>
+                        }
+                        else
+                        {
+                            <form method="post" action="/Lines/SetStatus">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="id" value="@line.Id" />
+                                <input type="hidden" name="status" value="Active" />
+                                <button type="submit" class="btn btn-success btn-sm">▶ Запустить</button>
+                            </form>
+                        }
+                        <form method="post" action="/Lines/Delete/@line.Id" style="display:inline"
+                              onsubmit="return confirm('Удалить линию «@line.Name»?')">
+                            @Html.AntiForgeryToken()
+                            <button type="submit" class="btn btn-danger btn-sm">✕</button>
+                        </form>
+                    </div>
+
+                    <!-- Efficiency slider -->
+                    <div style="margin-top:14px;">
+                        <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px;">
+                            КОЭФФИЦИЕНТ ЭФФЕКТИВНОСТИ
+                        </div>
+                        <form method="post" action="/Lines/SetEfficiency">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="id" value="@line.Id" />
+                            <div class="efficiency-controls">
+                                <span style="font-size:11px;color:var(--text-muted)">0.5</span>
+                                <input type="range" name="factor" min="0.5" max="2.0" step="0.1"
+                                       value="@line.EfficiencyFactor.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)"
+                                       id="slider_@line.Id"
+                                       oninput="document.getElementById('effVal_@line.Id').textContent = (+this.value).toFixed(1)" />
+                                <span style="font-size:11px;color:var(--text-muted)">2.0</span>
+                                <span id="effVal_@line.Id" style="font-weight:700;min-width:28px;text-align:right">
+                                    @line.EfficiencyFactor.ToString("0.0")
+                                </span>
+                                <button type="submit" class="btn btn-primary btn-sm">✓</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Schedule -->
+                    @if (line.WorkOrders.Any())
+                    {
+                        <div class="schedule-list">
+                            <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px;">РАСПИСАНИЕ</div>
+                            @foreach (var wo in line.WorkOrders.OrderBy(w => w.StartDate).Take(5))
+                            {
+                                <div class="schedule-item">
+                                    <div style="display:flex;justify-content:space-between;align-items:center">
+                                        <span><strong>#@wo.Id</strong> @wo.Product?.Name × @wo.Quantity шт</span>
+                                        @Html.Partial("_StatusBadge", wo.Status)
+                                    </div>
+                                    <div style="color:var(--text-muted);margin-top:3px;">
+                                        @wo.StartDate.ToString("dd.MM") — @wo.EstimatedEndDate.ToString("dd.MM.yyyy HH:mm")
+                                    </div>
+                                </div>
+                            }
+                            @if (line.WorkOrders.Count() > 5)
+                            {
+                                <div style="font-size:12px;color:var(--text-muted);text-align:center;padding:6px">
+                                    +@(line.WorkOrders.Count() - 5) заказов…
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="margin-top:12px;font-size:12.5px;color:var(--text-muted)">Заказов не назначено</div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}

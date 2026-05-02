@@ -1,0 +1,14 @@
+@model string
+@{
+    var (cls, label) = Model switch
+    {
+        "Active" => ("badge-success", "Активна"),
+        "Stopped" => ("badge-secondary", "Остановлена"),
+        "InProgress" => ("badge-info", "В работе"),
+        "Pending" => ("badge-warning", "Ожидает"),
+        "Completed" => ("badge-success", "Завершён"),
+        "Cancelled" => ("badge-danger", "Отменён"),
+        _ => ("badge-secondary", Model)
+    };
+}
+<span class="badge @cls">@label</span>

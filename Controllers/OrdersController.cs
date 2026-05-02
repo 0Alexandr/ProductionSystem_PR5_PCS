@@ -1,0 +1,283 @@
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using ProductionSystem.Data;
+using ProductionSystem.Models;
+
+namespace ProductionSystem.Controllers
+{
+    public class OrdersController : Controller
+    {
+        private readonly AppDbContext _db;
+
+        public OrdersController(AppDbContext db)
+        {
+            _db = db;
+        }
+
+        // GET /Orders
+        public async Task<IActionResult> Index(string? status, string? date)
+        {
+            var query = _db.WorkOrders
+                .Include(o => o.Product)
+                .Include(o => o.ProductionLine)
+                .AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(status) && status != "all")
+                query = query.Where(o => o.Status == status);
+
+            if (date == "today")
+                query = query.Where(o => o.StartDate.Date == DateTime.Today);
+
+            ViewBag.StatusFilter = status;
+            ViewBag.DateFilter = date;
+
+            return View(await query.OrderByDescending(o => o.StartDate).ToListAsync());
+        }
+
+        // GET /Orders/Create
+        public async Task<IActionResult> Create()
+        {
+            ViewBag.Products = await _db.Products.OrderBy(p => p.Name).ToListAsync();
+            ViewBag.Lines = await _db.ProductionLines
+                .Where(l => l.Status == "Active")
+                .ToListAsync();
+            return View(new WorkOrder { StartDate = DateTime.Now });
+        }
+
+        // POST /Orders/Create
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Create(WorkOrder order)
+        {
+            if (ModelState.IsValid)
+            {
+                // Check materials availability
+                var product = await _db.Products
+                    .Include(p => p.ProductMaterials)
+                    .ThenInclude(pm => pm.Material)
+                    .FirstOrDefaultAsync(p => p.Id == order.ProductId);
+
+                if (product != null)
+                {
+                    var shortages = new List<string>();
+                    foreach (var pm in product.ProductMaterials)
+                    {
+                        var needed = pm.QuantityNeeded * order.Quantity;
+                        if (pm.Material!.Quantity < needed)
+                            shortages.Add($"«{pm.Material.Name}»: нужно {needed}, доступно {pm.Material.Quantity} {pm.Material.UnitOfMeasure}");
+                    }
+
+                    if (shortages.Any())
+                    {
+                        TempData["Warning"] = "Недостаточно материалов: " + string.Join("; ", shortages);
+                    }
+
+                    // Auto-calculate end date
+                    var line = order.ProductionLineId.HasValue
+                        ? await _db.ProductionLines.FindAsync(order.ProductionLineId)
+                        : null;
+                    var efficiency = line?.EfficiencyFactor ?? 1.0f;
+                    var totalMinutes = (product.ProductionTimePerUnit * order.Quantity) / efficiency;
+                    order.EstimatedEndDate = order.StartDate.AddMinutes(totalMinutes);
+                }
+
+                _db.WorkOrders.Add(order);
+                await _db.SaveChangesAsync();
+                TempData["Success"] = $"Заказ №{order.Id} создан.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            ViewBag.Products = await _db.Products.OrderBy(p => p.Name).ToListAsync();
+            ViewBag.Lines = await _db.ProductionLines.Where(l => l.Status == "Active").ToListAsync();
+            return View(order);
+        }
+
+        // GET /Orders/Details/5
+        public async Task<IActionResult> Details(int id)
+        {
+            var order = await _db.WorkOrders
+                .Include(o => o.Product)
+                .ThenInclude(p => p!.ProductMaterials)
+                .ThenInclude(pm => pm.Material)
+                .Include(o => o.ProductionLine)
+                .FirstOrDefaultAsync(o => o.Id == id);
+
+            if (order == null) return NotFound();
+            return View(order);
+        }
+
+        // POST /Orders/Launch/5
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Launch(int id)
+        {
+            var order = await _db.WorkOrders
+                .Include(o => o.Product)
+                .ThenInclude(p => p!.ProductMaterials)
+                .ThenInclude(pm => pm.Material)
+                .FirstOrDefaultAsync(o => o.Id == id);
+
+            if (order == null) return NotFound();
+
+            if (order.Status == "Pending")
+            {
+                order.Status = "InProgress";
+                order.StartDate = DateTime.Now;
+
+                // Update line
+                if (order.ProductionLineId.HasValue)
+                {
+                    var line = await _db.ProductionLines.FindAsync(order.ProductionLineId);
+                    if (line != null)
+                    {
+                        line.CurrentWorkOrderId = order.Id;
+                        line.Status = "Active";
+                    }
+                }
+
+                // Deduct materials
+                if (order.Product != null)
+                {
+                    foreach (var pm in order.Product.ProductMaterials)
+                    {
+                        pm.Material!.Quantity -= pm.QuantityNeeded * order.Quantity;
+                        if (pm.Material.Quantity < 0) pm.Material.Quantity = 0;
+                    }
+                }
+
+                await _db.SaveChangesAsync();
+                TempData["Success"] = $"Заказ №{order.Id} запущен в производство.";
+            }
+
+            return RedirectToAction(nameof(Index));
+        }
+
+        // POST /Orders/Cancel/5
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Cancel(int id)
+        {
+            var order = await _db.WorkOrders.FindAsync(id);
+            if (order == null) return NotFound();
+
+            if (order.Status != "Completed")
+            {
+                order.Status = "Cancelled";
+
+                if (order.ProductionLineId.HasValue)
+                {
+                    var line = await _db.ProductionLines.FindAsync(order.ProductionLineId);
+                    if (line != null && line.CurrentWorkOrderId == order.Id)
+                        line.CurrentWorkOrderId = null;
+                }
+
+                await _db.SaveChangesAsync();
+                TempData["Success"] = $"Заказ №{order.Id} отменён.";
+            }
+
+            return RedirectToAction(nameof(Index));
+        }
+
+        // POST /Orders/Complete/5
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Complete(int id)
+        {
+            var order = await _db.WorkOrders.FindAsync(id);
+            if (order == null) return NotFound();
+
+            if (order.Status == "InProgress")
+            {
+                order.Status = "Completed";
+                order.Progress = 100;
+
+                if (order.ProductionLineId.HasValue)
+                {
+                    var line = await _db.ProductionLines.FindAsync(order.ProductionLineId);
+                    if (line != null && line.CurrentWorkOrderId == order.Id)
+                        line.CurrentWorkOrderId = null;
+                }
+
+                await _db.SaveChangesAsync();
+                TempData["Success"] = $"Заказ №{order.Id} завершён.";
+            }
+
+            return RedirectToAction(nameof(Index));
+        }
+
+        // ====== API ======
+
+        [HttpGet("/api/orders")]
+        public async Task<IActionResult> ApiGetOrders(string? status, string? date)
+        {
+            var query = _db.WorkOrders.Include(o => o.Product).Include(o => o.ProductionLine).AsQueryable();
+
+            if (status == "active") query = query.Where(o => o.Status == "InProgress");
+            if (date == "today") query = query.Where(o => o.StartDate.Date == DateTime.Today);
+
+            var result = await query.Select(o => new
+            {
+                o.Id, o.Status, o.Quantity, o.StartDate, o.EstimatedEndDate, o.Progress,
+                product = o.Product!.Name,
+                line = o.ProductionLine != null ? o.ProductionLine.Name : null
+            }).ToListAsync();
+
+            return Json(result);
+        }
+
+        [HttpPost("/api/orders")]
+        public async Task<IActionResult> ApiCreateOrder([FromBody] ApiOrderDto dto)
+        {
+            var product = await _db.Products.FindAsync(dto.ProductId);
+            if (product == null) return BadRequest("Product not found");
+
+            var line = dto.LineId.HasValue ? await _db.ProductionLines.FindAsync(dto.LineId) : null;
+            var efficiency = line?.EfficiencyFactor ?? 1.0f;
+            var totalMinutes = (product.ProductionTimePerUnit * dto.Quantity) / efficiency;
+
+            var order = new WorkOrder
+            {
+                ProductId = dto.ProductId,
+                ProductionLineId = dto.LineId,
+                Quantity = dto.Quantity,
+                StartDate = DateTime.Now,
+                EstimatedEndDate = DateTime.Now.AddMinutes(totalMinutes),
+                Status = "Pending"
+            };
+            _db.WorkOrders.Add(order);
+            await _db.SaveChangesAsync();
+            return Json(new { order.Id, order.Status, order.EstimatedEndDate });
+        }
+
+        [HttpPut("/api/orders/{id}/progress")]
+        public async Task<IActionResult> ApiUpdateProgress(int id, [FromBody] ProgressDto dto)
+        {
+            var order = await _db.WorkOrders.FindAsync(id);
+            if (order == null) return NotFound();
+            order.Progress = Math.Clamp(dto.Percent, 0, 100);
+            await _db.SaveChangesAsync();
+            return Json(new { order.Id, order.Progress });
+        }
+
+        [HttpGet("/api/orders/{id}/details")]
+        public async Task<IActionResult> ApiGetDetails(int id)
+        {
+            var order = await _db.WorkOrders
+                .Include(o => o.Product)
+                .Include(o => o.ProductionLine)
+                .FirstOrDefaultAsync(o => o.Id == id);
+
+            if (order == null) return NotFound();
+
+            return Json(new
+            {
+                order.Id, order.Status, order.Quantity, order.StartDate, order.EstimatedEndDate, order.Progress,
+                product = new { order.Product!.Id, order.Product.Name, order.Product.ProductionTimePerUnit },
+                line = order.ProductionLine != null ? new { order.ProductionLine.Id, order.ProductionLine.Name } : null
+            });
+        }
+    }
+
+    public record ApiOrderDto(int ProductId, int Quantity, int? LineId);
+    public record ProgressDto(int Percent);
+}

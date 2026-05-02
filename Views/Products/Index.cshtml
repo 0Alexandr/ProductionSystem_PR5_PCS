@@ -1,0 +1,108 @@
+@model IEnumerable<ProductionSystem.Models.Product>
+@{
+    ViewData["Title"] = "Продукты";
+    var categories = ViewBag.Categories as List<string> ?? new List<string>();
+    string? selCat = ViewBag.SelectedCategory;
+    string? search = ViewBag.Search;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Каталог продуктов</h1>
+        <p>Продукты, характеристики и требования к материалам</p>
+    </div>
+    <a href="/Products/Create" class="btn btn-primary btn-lg">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Создать продукт
+    </a>
+</div>
+
+<div class="filters">
+    <form method="get" action="/Products" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input type="text" name="search" class="form-control" placeholder="Поиск по названию…" value="@search" style="width:220px" />
+        <select name="category" class="form-control">
+            <option value="">Все категории</option>
+            @foreach (var cat in categories)
+            {
+                <option value="@cat" selected="@(cat == selCat)">@cat</option>
+            }
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">Найти</button>
+        @if (!string.IsNullOrWhiteSpace(search) || !string.IsNullOrWhiteSpace(selCat))
+        {
+            <a href="/Products" class="btn btn-outline btn-sm">✕ Сбросить</a>
+        }
+    </form>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">Продукты <span class="badge badge-secondary" style="margin-left:8px">@Model.Count()</span></div>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Название</th>
+                    <th>Категория</th>
+                    <th>Время произв. (мин/шт)</th>
+                    <th>Мин. запас</th>
+                    <th>Материалы</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var p in Model)
+                {
+                    <tr>
+                        <td>
+                            <strong>@p.Name</strong>
+                            @if (!string.IsNullOrWhiteSpace(p.Description))
+                            {
+                                <div style="font-size:12px;color:var(--text-muted)">@p.Description</div>
+                            }
+                        </td>
+                        <td>
+                            @if (!string.IsNullOrWhiteSpace(p.Category))
+                            {
+                                <span class="badge badge-info">@p.Category</span>
+                            }
+                            else
+                            {
+                                <span style="color:var(--text-muted)">—</span>
+                            }
+                        </td>
+                        <td>@p.ProductionTimePerUnit мин</td>
+                        <td>@p.MinimalStock шт</td>
+                        <td>
+                            <div class="mat-tags">
+                                @foreach (var pm in p.ProductMaterials)
+                                {
+                                    <span class="mat-tag">@pm.Material?.Name × @pm.QuantityNeeded</span>
+                                }
+                                @if (!p.ProductMaterials.Any())
+                                {
+                                    <span style="color:var(--text-muted);font-size:12px">не указаны</span>
+                                }
+                            </div>
+                        </td>
+                        <td>
+                            <div style="display:flex;gap:6px;">
+                                <a href="/Products/Edit/@p.Id" class="btn btn-outline btn-sm">✎</a>
+                                <form method="post" action="/Products/Delete/@p.Id" style="display:inline"
+                                      onsubmit="return confirm('Удалить продукт «@p.Name»?')">
+                                    @Html.AntiForgeryToken()
+                                    <button type="submit" class="btn btn-danger btn-sm">✕</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                }
+                @if (!Model.Any())
+                {
+                    <tr><td colspan="6"><div class="empty-state"><p>Продукты не найдены</p></div></td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

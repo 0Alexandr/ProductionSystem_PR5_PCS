@@ -1,0 +1,124 @@
+@model ProductionSystem.Models.WorkOrder
+@{
+    ViewData["Title"] = "Создать заказ";
+    var products = ViewBag.Products as List<ProductionSystem.Models.Product> ?? new();
+    var lines = ViewBag.Lines as List<ProductionSystem.Models.ProductionLine> ?? new();
+}
+
+<div class="breadcrumb">
+    <a href="/Orders">Заказы</a>
+    <span class="breadcrumb-sep">›</span>
+    <span class="breadcrumb-current">Создать заказ</span>
+</div>
+
+<div style="max-width:680px">
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">Новый производственный заказ</div>
+        </div>
+        <div class="card-body">
+            <form method="post" action="/Orders/Create">
+                @Html.AntiForgeryToken()
+
+                <div class="form-grid">
+                    <div class="form-group full">
+                        <label class="form-label">Продукт *</label>
+                        <select asp-for="ProductId" class="form-control" id="productSelect" onchange="onProductChange()">
+                            <option value="">— выберите продукт —</option>
+                            @foreach (var p in products)
+                            {
+                                <option value="@p.Id" data-time="@p.ProductionTimePerUnit">@p.Name (@p.ProductionTimePerUnit мин/шт)</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Количество (шт) *</label>
+                        <input asp-for="Quantity" class="form-control" type="number" min="1" id="qtyInput" oninput="recalcTime()" />
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Производственная линия</label>
+                        <select asp-for="ProductionLineId" class="form-control" id="lineSelect" onchange="recalcTime()">
+                            <option value="">— без линии —</option>
+                            @foreach (var l in lines)
+                            {
+                                <option value="@l.Id" data-eff="@l.EfficiencyFactor.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)">
+                                    @l.Name (×@l.EfficiencyFactor.ToString("0.0"))
+                                </option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Дата начала</label>
+                        <input asp-for="StartDate" class="form-control" type="datetime-local" id="startDate"
+                               value="@DateTime.Now.ToString("yyyy-MM-ddTHH:mm")" oninput="recalcTime()" />
+                    </div>
+                </div>
+
+                <!-- Расчёт -->
+                <div id="calcBlock" style="display:none;margin-top:18px">
+                    <div class="alert alert-info" style="gap:16px;align-items:center">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:22px;height:22px;flex-shrink:0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        <div>
+                            <div style="font-weight:700;margin-bottom:3px">Расчёт времени производства</div>
+                            <div>Время = (Кол-во × Время/шт) ÷ Коэф. эффективности</div>
+                            <div style="margin-top:6px;font-size:15px;font-weight:800" id="calcResult"></div>
+                            <div style="margin-top:4px;font-size:13px" id="calcEnd"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display:flex;gap:10px;margin-top:22px;">
+                    <button type="submit" class="btn btn-accent btn-lg">Создать заказ</button>
+                    <a href="/Orders" class="btn btn-outline btn-lg">Отмена</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+function onProductChange() { recalcTime(); }
+
+function recalcTime() {
+    const prodSel = document.getElementById('productSelect');
+    const qty = parseInt(document.getElementById('qtyInput').value) || 0;
+    const lineSel = document.getElementById('lineSelect');
+    const startVal = document.getElementById('startDate').value;
+    const calcBlock = document.getElementById('calcBlock');
+
+    const prodOpt = prodSel.selectedOptions[0];
+    const prodTime = prodOpt ? parseFloat(prodOpt.dataset.time) : 0;
+    const lineOpt = lineSel.selectedOptions[0];
+    const eff = lineOpt && lineOpt.dataset.eff ? parseFloat(lineOpt.dataset.eff) : 1.0;
+
+    if (!prodTime || !qty) { calcBlock.style.display = 'none'; return; }
+
+    const totalMinutes = (prodTime * qty) / eff;
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = Math.round(totalMinutes % 60);
+
+    let timeStr = '';
+    if (hours > 0) timeStr += hours + ' ч ';
+    timeStr += mins + ' мин';
+
+    document.getElementById('calcResult').textContent =
+        `Итого: ${totalMinutes.toFixed(0)} мин (${timeStr}) при эффективности ×${eff.toFixed(2)}`;
+
+    if (startVal) {
+        const start = new Date(startVal);
+        const end = new Date(start.getTime() + totalMinutes * 60000);
+        document.getElementById('calcEnd').textContent =
+            `Расчётное завершение: ${end.toLocaleDateString('ru-RU')} ${end.toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'})}`;
+    }
+
+    calcBlock.style.display = 'block';
+}
+
+// Init
+document.addEventListener('DOMContentLoaded', recalcTime);
+</script>
+}

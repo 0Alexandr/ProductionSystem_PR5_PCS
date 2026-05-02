@@ -1,0 +1,53 @@
+@model ProductionSystem.Models.Material
+@{
+    ViewData["Title"] = "Новый материал";
+}
+
+<div class="breadcrumb">
+    <a href="/Materials">Материалы</a>
+    <span class="breadcrumb-sep">›</span>
+    <span class="breadcrumb-current">Добавить материал</span>
+</div>
+
+<div style="max-width:600px;">
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">Новый материал</div>
+        </div>
+        <div class="card-body">
+            <form method="post" action="/Materials/Create">
+                @Html.AntiForgeryToken()
+                <div class="form-grid">
+                    <div class="form-group full">
+                        <label class="form-label">Название *</label>
+                        <input asp-for="Name" class="form-control @(ViewData.ModelState["Name"]?.Errors.Any() == true ? "is-invalid" : "")" placeholder="Например: Сталь листовая 3мм" />
+                        <span asp-validation-for="Name" class="invalid-feedback"></span>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Текущее количество</label>
+                        <input asp-for="Quantity" class="form-control" type="number" step="0.001" min="0" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Единица измерения</label>
+                        <select asp-for="UnitOfMeasure" class="form-control">
+                            <option>кг</option>
+                            <option>шт</option>
+                            <option>литр</option>
+                            <option>м</option>
+                            <option>м²</option>
+                            <option>упак</option>
+                        </select>
+                    </div>
+                    <div class="form-group full">
+                        <label class="form-label">Минимальный запас</label>
+                        <input asp-for="MinimalStock" class="form-control" type="number" step="0.001" min="0" />
+                    </div>
+                </div>
+                <div style="display:flex;gap:10px;margin-top:20px;">
+                    <button type="submit" class="btn btn-primary btn-lg">Сохранить</button>
+                    <a href="/Materials" class="btn btn-outline btn-lg">Отмена</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

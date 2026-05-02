@@ -1,0 +1,159 @@
+@model ProductionSystem.Models.WorkOrder
+@{
+    ViewData["Title"] = $"Заказ #{Model.Id}";
+}
+
+<div class="breadcrumb">
+    <a href="/Orders">Заказы</a>
+    <span class="breadcrumb-sep">›</span>
+    <span class="breadcrumb-current">Заказ #@Model.Id</span>
+</div>
+
+<div class="page-header">
+    <div>
+        <h1>Заказ #@Model.Id</h1>
+        <p>@Model.Product?.Name — @Model.Quantity шт</p>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center">
+        @Html.Partial("_StatusBadge", Model.Status)
+        @if (Model.Status == "Pending")
+        {
+            <form method="post" action="/Orders/Launch/@Model.Id">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="btn btn-success">▶ Запустить в производство</button>
+            </form>
+        }
+        @if (Model.Status == "InProgress")
+        {
+            <form method="post" action="/Orders/Complete/@Model.Id">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="btn btn-info">✓ Завершить</button>
+            </form>
+        }
+        @if (Model.Status == "Pending" || Model.Status == "InProgress")
+        {
+            <form method="post" action="/Orders/Cancel/@Model.Id"
+                  onsubmit="return confirm('Отменить заказ?')">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="btn btn-danger">✕ Отменить</button>
+            </form>
+        }
+    </div>
+</div>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:20px">
+    <div>
+        <div class="card" style="margin-bottom:18px">
+            <div class="card-header"><div class="card-title">Информация о заказе</div></div>
+            <div class="card-body">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+                    <div class="detail-block">
+                        <div class="detail-block-title">Продукт</div>
+                        <div class="detail-block-value">@Model.Product?.Name</div>
+                    </div>
+                    <div class="detail-block">
+                        <div class="detail-block-title">Количество</div>
+                        <div class="detail-block-value">@Model.Quantity шт</div>
+                    </div>
+                    <div class="detail-block">
+                        <div class="detail-block-title">Производственная линия</div>
+                        <div class="detail-block-value">@(Model.ProductionLine?.Name ?? "Не назначена")</div>
+                    </div>
+                    <div class="detail-block">
+                        <div class="detail-block-title">Статус</div>
+                        <div class="detail-block-value">@Html.Partial("_StatusBadge", Model.Status)</div>
+                    </div>
+                    <div class="detail-block">
+                        <div class="detail-block-title">Дата начала</div>
+                        <div class="detail-block-value">@Model.StartDate.ToString("dd.MM.yyyy HH:mm")</div>
+                    </div>
+                    <div class="detail-block">
+                        <div class="detail-block-title">Расчётное завершение</div>
+                        <div class="detail-block-value @(Model.EstimatedEndDate < DateTime.Now && Model.Status != "Completed" ? "danger-text" : "")">
+                            @Model.EstimatedEndDate.ToString("dd.MM.yyyy HH:mm")
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top:20px;">
+                    <div class="detail-block-title" style="margin-bottom:8px;">Прогресс выполнения — @Model.Progress%</div>
+                    <div class="progress-bar-wrap" style="height:14px;border-radius:8px;">
+                        <div class="progress-bar-fill @(Model.Progress > 60 ? "green" : Model.Progress > 30 ? "orange" : "blue")"
+                             style="width:@Model.Progress%"></div>
+                    </div>
+                    @if (Model.Status == "InProgress")
+                    {
+                        <form method="post" action="/api/orders/@Model.Id/progress" id="progressForm" style="margin-top:12px;display:flex;gap:8px;align-items:center">
+                            <input type="number" id="progressInput" value="@Model.Progress" min="0" max="100" class="form-control" style="width:90px" />
+                            <span style="color:var(--text-muted)">%</span>
+                            <button type="button" class="btn btn-primary btn-sm" onclick="updateProgress()">Обновить прогресс</button>
+                        </form>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @if (Model.Product?.ProductMaterials?.Any() == true)
+        {
+            <div class="card">
+                <div class="card-header"><div class="card-title">Необходимые материалы</div></div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Материал</th>
+                                <th>На единицу</th>
+                                <th>На весь заказ</th>
+                                <th>Ед. изм.</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var pm in Model.Product.ProductMaterials)
+                            {
+                                <tr>
+                                    <td>@pm.Material?.Name</td>
+                                    <td>@pm.QuantityNeeded</td>
+                                    <td><strong>@(pm.QuantityNeeded * Model.Quantity)</strong></td>
+                                    <td>@pm.Material?.UnitOfMeasure</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    </div>
+
+    <div>
+        <div class="card">
+            <div class="card-header"><div class="card-title">Быстрые действия</div></div>
+            <div class="card-body" style="display:flex;flex-direction:column;gap:10px;">
+                <a href="/Orders" class="btn btn-outline">← Все заказы</a>
+                <a href="/Orders/Create" class="btn btn-accent">+ Новый заказ</a>
+                <a href="/Lines" class="btn btn-outline">Производственные линии</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+async function updateProgress() {
+    const val = parseInt(document.getElementById('progressInput').value);
+    if (isNaN(val) || val < 0 || val > 100) {
+        alert('Введите значение от 0 до 100');
+        return;
+    }
+    const resp = await fetch('/api/orders/@Model.Id/progress', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ percent: val })
+    });
+    if (resp.ok) {
+        window.location.reload();
+    } else {
+        alert('Ошибка при обновлении прогресса');
+    }
+}
+</script>
+}

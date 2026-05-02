@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] — Производство</title>
+    <link rel="stylesheet" href="~/css/site.css" />
+</head>
+<body>
+<div class="app-wrapper">
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+        <div class="sidebar-logo">
+            <div class="logo-icon">
+                <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            </div>
+                <div class="logo-title">Управление Производством</div>
+            <div class="logo-sub">ASP.NET Core MVC</div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-section">Главная</div>
+            <a href="@Url.Action("Index","Home")" class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Home" ? "active" : "")">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                Панель управления
+            </a>
+
+            <div class="nav-section">Склад</div>
+            <a href="@Url.Action("Index","Materials")" class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Materials" ? "active" : "")">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                Материалы
+            </a>
+            <a href="@Url.Action("Index","Products")" class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Products" ? "active" : "")">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93A10 10 0 1 1 4.93 19.07"/></svg>
+                Продукты
+            </a>
+
+            <div class="nav-section">Производство</div>
+            <a href="@Url.Action("Index","Orders")" class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Orders" ? "active" : "")">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+                Заказы
+            </a>
+            <a href="@Url.Action("Index","Lines")" class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Lines" ? "active" : "")">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                Производственные линии
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+                Производство · 2026
+        </div>
+    </aside>
+
+    <!-- MAIN -->
+    <div class="main-content">
+        <header class="topbar">
+            <div class="topbar-title">@ViewData["Title"]</div>
+            <div class="topbar-actions">
+                @if (TempData["Success"] != null)
+                {
+                    <span class="badge badge-success">✓ @TempData["Success"]</span>
+                }
+            </div>
+        </header>
+
+        <main class="page-body">
+            @if (TempData["Success"] != null)
+            {
+                <div class="alert alert-success">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    @TempData["Success"]
+                </div>
+            }
+            @if (TempData["Warning"] != null)
+            {
+                <div class="alert alert-warning">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    @TempData["Warning"]
+                </div>
+            }
+
+            @RenderBody()
+        </main>
+    </div>
+</div>
+@RenderSection("Scripts", required: false)
+</body>
+</html>
