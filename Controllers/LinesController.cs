@@ -64,13 +64,28 @@ namespace ProductionSystem.Controllers
         // POST /Lines/SetEfficiency
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> SetEfficiency(int id, float factor)
+        public async Task<IActionResult> SetEfficiency(int id, string factor)
         {
             var line = await _db.ProductionLines.FindAsync(id);
             if (line == null) return NotFound();
-            line.EfficiencyFactor = Math.Clamp(factor, 0.5f, 2.0f);
-            await _db.SaveChangesAsync();
-            TempData["Success"] = $"Коэффициент эффективности обновлён.";
+
+            // 1. Пытаемся распарсить строку, заменяя запятую на точку для InvariantCulture
+            if (float.TryParse(factor.Replace(',', '.'),
+                System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out float parsedFactor))
+            {
+                // 2. Применяем ограничение (Clamp), как в вашем исходном коде
+                line.EfficiencyFactor = Math.Clamp(parsedFactor, 0.5f, 2.0f);
+
+                await _db.SaveChangesAsync();
+                TempData["Success"] = $"Эффективность линии {line.Name} обновлена до {line.EfficiencyFactor:0.0}.";
+            }
+            else
+            {
+                TempData["Error"] = "Некорректный формат числа.";
+            }
+
             return RedirectToAction(nameof(Index));
         }
 

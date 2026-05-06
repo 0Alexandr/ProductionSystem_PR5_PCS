@@ -51,12 +51,12 @@
                             <div class="qty-cell">
                                 <div class="qty-indicator @(m.IsLowStock ? "qty-low" : "qty-ok")"></div>
                                 <span style="@(m.IsLowStock ? "color:var(--danger);font-weight:700" : "")">
-                                    @m.Quantity
+                                    @m.Quantity.ToString("0.##")
                                 </span>
                             </div>
                         </td>
                         <td>@m.UnitOfMeasure</td>
-                        <td>@m.MinimalStock</td>
+                        <td>@m.MinimalStock.ToString("0.##")</td>
                         <td>
                             @if (m.IsLowStock)
                             {
@@ -71,7 +71,7 @@
                             <form method="post" action="/Materials/Replenish/@m.Id" class="inline-form">
                                 @Html.AntiForgeryToken()
                                 <input type="number" name="amount" class="form-control" 
-                                       step="0.001" min="0.001" placeholder="Кол-во" value="@(m.MinimalStock - m.Quantity > 0 ? (m.MinimalStock - m.Quantity) : 10)" />
+                                       step="0.01" min="0.01" placeholder="Кол-во" value="@(m.MinimalStock - m.Quantity > 0 ? (m.MinimalStock - m.Quantity) : 10)" />
                                 <button type="submit" class="btn btn-success btn-sm">+ Пополнить</button>
                             </form>
                         </td>

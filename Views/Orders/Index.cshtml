@@ -67,10 +67,17 @@
                         <td>
                             <div style="display:flex;align-items:center;gap:8px;min-width:120px">
                                 <div class="progress-bar-wrap" style="flex:1">
-                                    <div class="progress-bar-fill @(order.Progress > 60 ? "green" : order.Progress > 30 ? "orange" : "blue")"
-                                         style="width:@order.Progress%"></div>
+                                    <!-- Добавляем ID и data-order-id. Также добавляем класс js-order-progress для скрипта -->
+                                    <div id="bar-fill-@order.Id"
+                                         class="progress-bar-fill js-order-progress @(order.Progress > 60 ? "green" : order.Progress > 30 ? "orange" : "blue")"
+                                         data-order-id="@order.Id"
+                                         data-status="@order.Status"
+                                         style="width:@order.Progress%">
+                                    </div>
                                 </div>
-                                <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">@order.Progress%</span>
+                                <span id="bar-text-@order.Id" style="font-size:12px;color:var(--text-muted);white-space:nowrap">
+                                    @order.Progress%
+                                </span>
                             </div>
                         </td>
                         <td style="font-size:12.5px;white-space:nowrap">@order.StartDate.ToString("dd.MM.yy HH:mm")</td>
@@ -79,7 +86,7 @@
                         </td>
                         <td>
                             <div style="display:flex;gap:5px;flex-wrap:wrap;">
-                                <a href="/Orders/Details/@order.Id" class="btn btn-outline btn-sm">👁</a>
+                                <a href="/Orders/Details/@order.Id" class="btn btn-outline btn-sm">👁 Подробнее</a>
                                 @if (order.Status == "Pending")
                                 {
                                     <form method="post" action="/Orders/Launch/@order.Id" style="display:inline">
@@ -99,7 +106,18 @@
                                     <form method="post" action="/Orders/Cancel/@order.Id" style="display:inline"
                                           onsubmit="return confirm('Отменить заказ #@order.Id?')">
                                         @Html.AntiForgeryToken()
-                                        <button type="submit" class="btn btn-danger btn-sm">✕</button>
+                                        <button type="submit" class="btn btn-danger btn-sm">✕ Отменить</button>
+                                    </form>
+                                }
+                                @if (order.Status == "Completed" || order.Status == "Cancelled")
+                                {
+                                    <form method="post" action="/Orders/Delete/@order.Id" style="display:inline"
+                                          onsubmit="return confirm('Удалить заказ #@order.Id навсегда?')">
+                                        @Html.AntiForgeryToken()
+                                        <button type="submit" class="btn btn-sm"
+                                                style="border:1px solid var(--danger); color:var(--danger); background:transparent">
+                                            🗑 Удалить
+                                        </button>
                                     </form>
                                 }
                             </div>
@@ -114,3 +132,48 @@
         </table>
     </div>
 </div>
+
+@section Scripts {
+    <script>
+        async function refreshOrders() {
+            // Находим все полоски прогресса заказов, которые сейчас "В работе"
+            const activeBars = document.querySelectorAll('.progress-bar-fill[data-status="InProgress"]');
+
+            for (let bar of activeBars) {
+                // Берем ID заказа из атрибута (который мы добавили в прошлом шаге)
+                const orderId = bar.getAttribute('data-order-id');
+
+                try {
+                    // Вызываем ваш API, который сам все считает в базе
+                    const response = await fetch(`/api/orders/${orderId}/progress/auto`);
+                    if (!response.ok) continue;
+
+                    const data = await response.json();
+
+                    // Обновляем ширину полоски
+                    bar.style.width = data.progress + '%';
+
+                    // Обновляем текст процентов (ищем соседний span)
+                    const textSpan = document.getElementById(`bar-text-${orderId}`);
+                    if (textSpan) textSpan.innerText = data.progress + '%';
+
+                    // Меняем цвет как в Details
+                    bar.classList.remove('green', 'orange', 'blue');
+                    const colorClass = data.progress > 60 ? 'green' : (data.progress > 30 ? 'orange' : 'blue');
+                    bar.classList.add(colorClass);
+
+                    // Если заказ завершился, можно либо перезагрузить, либо просто закрасить в зеленый
+                    if (data.status === 'Completed') {
+                        bar.style.width = '100%';
+                        if (textSpan) textSpan.innerText = '100%';
+                    }
+                } catch (e) {
+                    console.warn('Ошибка обновления заказа ' + orderId, e);
+                }
+            }
+        }
+
+        // Запускаем обновление каждые 5 секунд (как в вашем Details)
+        setInterval(refreshOrders, 5000);
+    </script>
+}

@@ -94,15 +94,6 @@
                             <div style="font-size:15px;font-weight:700" id="producedUnits">— / @Model.Quantity шт</div>
                         </div>
                     </div>
-
-                    <!-- Ручное обновление прогресса -->
-                    <div style="display:flex;gap:8px;align-items:center;padding-top:12px;border-top:1px solid var(--border)">
-                        <label class="form-label" style="white-space:nowrap;margin:0">Установить вручную:</label>
-                        <input type="number" id="progressInput" value="@Model.Progress" min="0" max="100"
-                               class="form-control" style="width:80px" />
-                        <span style="color:var(--text-muted)">%</span>
-                        <button type="button" class="btn btn-primary btn-sm" onclick="setProgressManual()">Применить</button>
-                    </div>
                 }
             </div>
         </div>
@@ -305,34 +296,6 @@ if (IS_INPROGRESS && TOTAL_SEC > 0) {
     const timer = setInterval(tick, 1000);
     // Первая синхронизация через 1 сек
     setTimeout(syncWithServer, 1000);
-}
-
-// --- Ручная установка прогресса ---
-async function setProgressManual() {
-    const val = parseInt(document.getElementById('progressInput').value);
-    if (isNaN(val) || val < 0 || val > 100) {
-        alert('Введите значение от 0 до 100');
-        return;
-    }
-    try {
-        const resp = await fetch(`/api/orders/${ORDER_ID}/progress`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ percent: val })
-        });
-        if (resp.ok) {
-            // Показываем кратко что сохранено, не перезагружаем
-            const btn = event.target;
-            const orig = btn.textContent;
-            btn.textContent = '✓ Сохранено';
-            btn.disabled = true;
-            setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1500);
-        } else {
-            alert('Ошибка при сохранении прогресса');
-        }
-    } catch(e) {
-        alert('Ошибка соединения');
-    }
 }
 </script>
 }

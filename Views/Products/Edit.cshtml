@@ -73,9 +73,10 @@
                                         }
                                     }
                                 </select>
-                                <input name="quantities" type="number" class="form-control" style="flex:1"
-                                       step="0.001" min="0.001" value="@pm.QuantityNeeded.ToString(System.Globalization.CultureInfo.InvariantCulture)"
-                                       placeholder="Кол-во на 1 шт" />
+                                <input name="quantities" type="text" class="form-control" style="flex:1"
+                                    value="@pm.QuantityNeeded.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                                    oninput="this.value = this.value.replace(',', '.').replace(/[^0-9.]/g, '')"
+                                    placeholder="Кол-во на 1 шт" />
                                 <button type="button" class="btn-remove-mat" onclick="this.closest('.mat-row-editor').remove()">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                         <line x1="18" y1="6" x2="6" y2="18"/>
@@ -125,8 +126,13 @@ function addMatRow(matId = '', qty = 1) {
             <option value="">— выберите материал —</option>
             ${buildOptions(matId)}
         </select>
-        <input name="quantities" type="number" class="form-control" style="flex:1"
-               step="0.001" min="0.001" value="${qty}" placeholder="Кол-во на 1 шт" />
+        <input name="quantities" 
+               type="text" 
+               class="form-control" 
+               style="flex:1"
+               value="${qty}" 
+               placeholder="Кол-во"
+               oninput="this.value = this.value.replace(',', '.').replace(/[^0-9.]/g, '')" /> 
         <button type="button" class="btn-remove-mat" onclick="this.closest('.mat-row-editor').remove()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="18" y1="6" x2="6" y2="18"/>

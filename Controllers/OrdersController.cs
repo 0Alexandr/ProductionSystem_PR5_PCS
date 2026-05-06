@@ -256,6 +256,23 @@ namespace ProductionSystem.Controllers
             return RedirectToAction(nameof(Index));
         }
 
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Delete(int id)
+        {
+            var order = await _db.WorkOrders.FindAsync(id);
+
+            // Проверяем, существует ли заказ и можно ли его удалять (статус Завершен или Отменен)
+            if (order != null && (order.Status == "Completed" || order.Status == "Cancelled"))
+            {
+                _db.WorkOrders.Remove(order);
+                await _db.SaveChangesAsync();
+            }
+
+            // Возвращаемся на главную страницу заказов
+            return RedirectToAction(nameof(Index));
+        }
+
         // ====== API ======
 
         [HttpGet("/api/orders")]

@@ -96,35 +96,72 @@ namespace ProductionSystem.Controllers
         // POST /Products/Edit/5
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(int id, Product product, int[]? materialIds, decimal[]? quantities)
+        // 1. Изменяем decimal[] на string[] для quantities
+        public async Task<IActionResult> Edit(int id, Product product, int[]? materialIds, string[]? quantities)
         {
             if (id != product.Id) return BadRequest();
+
+            // 2. Удаляем ошибки валидации для вложенных материалов, 
+            // так как мы их обрабатываем вручную ниже
+            ModelState.Remove("ProductMaterials");
+
             if (ModelState.IsValid)
             {
-                _db.Products.Update(product);
-
-                // Replace material links
-                var existing = _db.ProductMaterials.Where(pm => pm.ProductId == id);
-                _db.ProductMaterials.RemoveRange(existing);
-
-                if (materialIds != null)
+                try
                 {
-                    for (int i = 0; i < materialIds.Length; i++)
-                    {
-                        _db.ProductMaterials.Add(new ProductMaterial
-                        {
-                            ProductId = id,
-                            MaterialId = materialIds[i],
-                            QuantityNeeded = quantities != null && i < quantities.Length ? quantities[i] : 1
-                        });
-                    }
-                }
+                    _db.Products.Update(product);
 
-                await _db.SaveChangesAsync();
-                TempData["Success"] = $"Продукт «{product.Name}» обновлён.";
-                return RedirectToAction(nameof(Index));
+                    // Удаляем старые связи
+                    var existing = _db.ProductMaterials.Where(pm => pm.ProductId == id);
+                    _db.ProductMaterials.RemoveRange(existing);
+
+                    // Сохраняем изменения удаления перед добавлением новых (надежнее)
+                    await _db.SaveChangesAsync();
+
+                    if (materialIds != null && quantities != null)
+                    {
+                        for (int i = 0; i < materialIds.Length; i++)
+                        {
+                            // 3. Безопасный парсинг строки в decimal с поддержкой точки и запятой
+                            string rawVal = quantities[i].Replace(',', '.');
+                            if (decimal.TryParse(rawVal,
+                                System.Globalization.NumberStyles.Any,
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                out decimal parsedQty))
+                            {
+                                _db.ProductMaterials.Add(new ProductMaterial
+                                {
+                                    ProductId = id,
+                                    MaterialId = materialIds[i],
+                                    QuantityNeeded = parsedQty
+                                });
+                            }
+                        }
+                    }
+
+                    await _db.SaveChangesAsync();
+                    TempData["Success"] = $"Продукт «{product.Name}» обновлён.";
+                    return RedirectToAction(nameof(Index));
+                }
+                catch (Exception ex)
+                {
+                    ModelState.AddModelError("", "Ошибка при сохранении: " + ex.Message);
+                }
             }
+
+            // Если данные невалидны, возвращаем материалы для повторного отображения формы
             ViewBag.Materials = await _db.Materials.ToListAsync();
+
+            // Чтобы при ошибке введенные материалы не пропадали из списка на странице:
+            if (materialIds != null)
+            {
+                product.ProductMaterials = materialIds.Select((mid, idx) => new ProductMaterial
+                {
+                    MaterialId = mid,
+                    QuantityNeeded = decimal.TryParse(quantities?[idx].Replace(',', '.'), out var d) ? d : 0
+                }).ToList();
+            }
+
             return View(product);
         }
 
