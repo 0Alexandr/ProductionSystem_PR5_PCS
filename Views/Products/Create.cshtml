@@ -48,16 +48,22 @@
 
                 <div style="margin-top:22px;">
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-                        <div class="card-title">Необходимые материалы</div>
+                        <div class="card-title">
+                            Необходимые материалы
+                            <span style="color:var(--danger);font-size:12px;font-weight:400;margin-left:8px">* минимум один материал</span>
+                        </div>
                         <button type="button" class="btn btn-outline btn-sm" onclick="addMatRow()">
                             + Добавить материал
                         </button>
                     </div>
                     <div id="matRows"></div>
+                    <div id="matError" style="display:none;color:var(--danger);font-size:13px;margin-top:6px;">
+                        ⚠ Добавьте хотя бы один материал
+                    </div>
                 </div>
 
                 <div style="display:flex;gap:10px;margin-top:22px;">
-                    <button type="submit" class="btn btn-primary btn-lg">Создать продукт</button>
+                    <button type="button" class="btn btn-primary btn-lg" onclick="submitForm()">Создать продукт</button>
                     <a href="/Products" class="btn btn-outline btn-lg">Отмена</a>
                 </div>
             </form>
@@ -67,34 +73,62 @@
 
 @section Scripts {
 <script>
+// ВАЖНО: System.Text.Json сериализует PascalCase → нужно читать с большой буквы,
+// поэтому явно задаём маленькие ключи через анонимный объект с lowercase именами
 const materials = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
-    materials.Select(m => new { m.Id, m.Name, m.UnitOfMeasure })
+    materials.Select(m => new {
+        id           = m.Id,
+        name         = m.Name,
+        unitOfMeasure = m.UnitOfMeasure
+    })
 ));
+
 let rowIdx = 0;
+
+function buildOptions(selectedId) {
+    return materials.map(m =>
+        `<option value="${m.id}" ${m.id == selectedId ? 'selected' : ''}>${m.name} (${m.unitOfMeasure})</option>`
+    ).join('');
+}
 
 function addMatRow(matId = '', qty = 1) {
     const container = document.getElementById('matRows');
     const div = document.createElement('div');
     div.className = 'mat-row-editor';
-    div.dataset.idx = rowIdx;
-
-    const opts = materials.map(m =>
-        `<option value="${m.id}" ${m.id == matId ? 'selected' : ''}>${m.name} (${m.unitOfMeasure})</option>`
-    ).join('');
+    div.dataset.idx = rowIdx++;
 
     div.innerHTML = `
         <select name="materialIds" class="form-control" style="flex:2">
             <option value="">— выберите материал —</option>
-            ${opts}
+            ${buildOptions(matId)}
         </select>
         <input name="quantities" type="number" class="form-control" style="flex:1"
-               step="0.001" min="0.001" value="${qty}" placeholder="Кол-во" />
-        <button type="button" class="btn-remove-mat" onclick="this.parentElement.remove()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-    `;
+               step="0.001" min="0.001" value="${qty}" placeholder="Кол-во на 1 шт" />
+        <button type="button" class="btn-remove-mat" onclick="this.closest('.mat-row-editor').remove()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+        </button>`;
     container.appendChild(div);
-    rowIdx++;
+    document.getElementById('matError').style.display = 'none';
 }
+
+function submitForm() {
+    const rows = document.querySelectorAll('#matRows .mat-row-editor');
+    const filled = Array.from(rows).filter(r => {
+        const sel = r.querySelector('select[name="materialIds"]');
+        return sel && sel.value !== '';
+    });
+    if (filled.length === 0) {
+        document.getElementById('matError').style.display = 'block';
+        document.getElementById('matRows').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+    }
+    document.getElementById('productForm').submit();
+}
+
+// Добавить первую строку автоматически
+addMatRow();
 </script>
 }

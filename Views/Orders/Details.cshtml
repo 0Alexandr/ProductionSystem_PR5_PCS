@@ -1,6 +1,16 @@
 @model ProductionSystem.Models.WorkOrder
 @{
     ViewData["Title"] = $"Заказ #{Model.Id}";
+    bool isInProgress = Model.Status == "InProgress";
+    // Расчёт общего времени производства в секундах (для JS-таймера)
+    double totalSeconds = 0;
+    double elapsedSeconds = 0;
+    if (Model.ActualStartDate.HasValue && Model.Product != null)
+    {
+        var lineEff = Model.ProductionLine?.EfficiencyFactor ?? 1.0f;
+        totalSeconds = Model.Product.ProductionTimePerUnit * Model.Quantity * 60.0 / lineEff;
+        elapsedSeconds = (DateTime.Now - Model.ActualStartDate.Value).TotalSeconds;
+    }
 }
 
 <div class="breadcrumb">
@@ -14,8 +24,8 @@
         <h1>Заказ #@Model.Id</h1>
         <p>@Model.Product?.Name — @Model.Quantity шт</p>
     </div>
-    <div style="display:flex;gap:10px;align-items:center">
-        @Html.Partial("_StatusBadge", Model.Status)
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <span id="statusBadge">@Html.Partial("_StatusBadge", Model.Status)</span>
         @if (Model.Status == "Pending")
         {
             <form method="post" action="/Orders/Launch/@Model.Id">
@@ -23,17 +33,17 @@
                 <button type="submit" class="btn btn-success">▶ Запустить в производство</button>
             </form>
         }
-        @if (Model.Status == "InProgress")
+        @if (isInProgress)
         {
             <form method="post" action="/Orders/Complete/@Model.Id">
                 @Html.AntiForgeryToken()
                 <button type="submit" class="btn btn-info">✓ Завершить</button>
             </form>
         }
-        @if (Model.Status == "Pending" || Model.Status == "InProgress")
+        @if (Model.Status == "Pending" || isInProgress)
         {
             <form method="post" action="/Orders/Cancel/@Model.Id"
-                  onsubmit="return confirm('Отменить заказ?')">
+                  onsubmit="return confirm('Отменить заказ? Неиспользованные материалы будут возвращены на склад.')">
                 @Html.AntiForgeryToken()
                 <button type="submit" class="btn btn-danger">✕ Отменить</button>
             </form>
@@ -43,6 +53,61 @@
 
 <div style="display:grid;grid-template-columns:2fr 1fr;gap:20px">
     <div>
+        <!-- Прогресс-карточка -->
+        <div class="card" style="margin-bottom:18px">
+            <div class="card-header">
+                <div class="card-title">Ход выполнения</div>
+                @if (isInProgress)
+                {
+                    <span class="badge badge-info" id="liveBadge">
+                        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#fff;margin-right:4px;animation:pulse 1s infinite"></span>
+                        В реальном времени
+                    </span>
+                }
+            </div>
+            <div class="card-body">
+                <!-- Прогресс-бар -->
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <span class="detail-block-title">Прогресс</span>
+                    <span style="font-size:20px;font-weight:800;color:var(--primary)" id="progressText">@Model.Progress%</span>
+                </div>
+                <div class="progress-bar-wrap" style="height:18px;border-radius:10px;margin-bottom:16px">
+                    <div id="progressBar"
+                         class="progress-bar-fill @(Model.Progress > 60 ? "green" : Model.Progress > 30 ? "orange" : "blue")"
+                         style="width:@Model.Progress%;transition:width 0.8s ease"></div>
+                </div>
+
+                @if (isInProgress && Model.ActualStartDate.HasValue)
+                {
+                    <!-- Таймер и статистика -->
+                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
+                        <div style="background:var(--surface2);border-radius:8px;padding:10px 14px;text-align:center;">
+                            <div class="detail-block-title">Прошло</div>
+                            <div style="font-size:15px;font-weight:700;font-variant-numeric:tabular-nums" id="elapsedTime">—</div>
+                        </div>
+                        <div style="background:var(--surface2);border-radius:8px;padding:10px 14px;text-align:center;">
+                            <div class="detail-block-title">Осталось</div>
+                            <div style="font-size:15px;font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums" id="remainTime">—</div>
+                        </div>
+                        <div style="background:var(--surface2);border-radius:8px;padding:10px 14px;text-align:center;">
+                            <div class="detail-block-title">Произведено</div>
+                            <div style="font-size:15px;font-weight:700" id="producedUnits">— / @Model.Quantity шт</div>
+                        </div>
+                    </div>
+
+                    <!-- Ручное обновление прогресса -->
+                    <div style="display:flex;gap:8px;align-items:center;padding-top:12px;border-top:1px solid var(--border)">
+                        <label class="form-label" style="white-space:nowrap;margin:0">Установить вручную:</label>
+                        <input type="number" id="progressInput" value="@Model.Progress" min="0" max="100"
+                               class="form-control" style="width:80px" />
+                        <span style="color:var(--text-muted)">%</span>
+                        <button type="button" class="btn btn-primary btn-sm" onclick="setProgressManual()">Применить</button>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Информация о заказе -->
         <div class="card" style="margin-bottom:18px">
             <div class="card-header"><div class="card-title">Информация о заказе</div></div>
             <div class="card-body">
@@ -60,39 +125,35 @@
                         <div class="detail-block-value">@(Model.ProductionLine?.Name ?? "Не назначена")</div>
                     </div>
                     <div class="detail-block">
-                        <div class="detail-block-title">Статус</div>
-                        <div class="detail-block-value">@Html.Partial("_StatusBadge", Model.Status)</div>
+                        <div class="detail-block-title">Коэф. эффективности</div>
+                        <div class="detail-block-value">×@(Model.ProductionLine?.EfficiencyFactor.ToString("0.0") ?? "1.0")</div>
                     </div>
                     <div class="detail-block">
-                        <div class="detail-block-title">Дата начала</div>
+                        <div class="detail-block-title">Плановая дата начала</div>
                         <div class="detail-block-value">@Model.StartDate.ToString("dd.MM.yyyy HH:mm")</div>
                     </div>
+                    @if (Model.ActualStartDate.HasValue)
+                    {
+                        <div class="detail-block">
+                            <div class="detail-block-title">Фактический запуск</div>
+                            <div class="detail-block-value" style="color:var(--success)">@Model.ActualStartDate.Value.ToString("dd.MM.yyyy HH:mm:ss")</div>
+                        </div>
+                    }
                     <div class="detail-block">
                         <div class="detail-block-title">Расчётное завершение</div>
-                        <div class="detail-block-value @(Model.EstimatedEndDate < DateTime.Now && Model.Status != "Completed" ? "danger-text" : "")">
+                        <div class="detail-block-value @(Model.EstimatedEndDate < DateTime.Now && Model.Status != "Completed" && Model.Status != "Cancelled" ? "danger-text" : "")">
                             @Model.EstimatedEndDate.ToString("dd.MM.yyyy HH:mm")
                         </div>
                     </div>
-                </div>
-
-                <div style="margin-top:20px;">
-                    <div class="detail-block-title" style="margin-bottom:8px;">Прогресс выполнения — @Model.Progress%</div>
-                    <div class="progress-bar-wrap" style="height:14px;border-radius:8px;">
-                        <div class="progress-bar-fill @(Model.Progress > 60 ? "green" : Model.Progress > 30 ? "orange" : "blue")"
-                             style="width:@Model.Progress%"></div>
+                    <div class="detail-block">
+                        <div class="detail-block-title">Время произв. на ед.</div>
+                        <div class="detail-block-value">@Model.Product?.ProductionTimePerUnit мин/шт</div>
                     </div>
-                    @if (Model.Status == "InProgress")
-                    {
-                        <form method="post" action="/api/orders/@Model.Id/progress" id="progressForm" style="margin-top:12px;display:flex;gap:8px;align-items:center">
-                            <input type="number" id="progressInput" value="@Model.Progress" min="0" max="100" class="form-control" style="width:90px" />
-                            <span style="color:var(--text-muted)">%</span>
-                            <button type="button" class="btn btn-primary btn-sm" onclick="updateProgress()">Обновить прогресс</button>
-                        </form>
-                    }
                 </div>
             </div>
         </div>
 
+        <!-- Материалы -->
         @if (Model.Product?.ProductMaterials?.Any() == true)
         {
             <div class="card">
@@ -102,8 +163,8 @@
                         <thead>
                             <tr>
                                 <th>Материал</th>
-                                <th>На единицу</th>
-                                <th>На весь заказ</th>
+                                <th>На 1 шт</th>
+                                <th>На весь заказ (@Model.Quantity шт)</th>
                                 <th>Ед. изм.</th>
                             </tr>
                         </thead>
@@ -124,6 +185,7 @@
         }
     </div>
 
+    <!-- Боковая панель -->
     <div>
         <div class="card">
             <div class="card-header"><div class="card-title">Быстрые действия</div></div>
@@ -131,28 +193,145 @@
                 <a href="/Orders" class="btn btn-outline">← Все заказы</a>
                 <a href="/Orders/Create" class="btn btn-accent">+ Новый заказ</a>
                 <a href="/Lines" class="btn btn-outline">Производственные линии</a>
+                <a href="/Materials" class="btn btn-outline">Склад материалов</a>
             </div>
         </div>
+
+        @if (isInProgress)
+        {
+            <div class="card" style="margin-top:16px">
+                <div class="card-header"><div class="card-title">Формула расчёта</div></div>
+                <div class="card-body" style="font-size:12.5px;color:var(--text-muted);line-height:1.7">
+                    <div><strong>Время =</strong></div>
+                    <div>(Кол-во × Время/шт)</div>
+                    <div>÷ Коэф. эффективности</div>
+                    <div style="margin-top:8px;color:var(--text)">
+                        = (@Model.Quantity × @Model.Product?.ProductionTimePerUnit мин)
+                        ÷ @(Model.ProductionLine?.EfficiencyFactor.ToString("0.0") ?? "1.0")
+                        = <strong>@(Math.Round(totalSeconds / 60, 1)) мин</strong>
+                    </div>
+                </div>
+            </div>
+        }
     </div>
 </div>
 
+<style>
+@@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+}
+.danger-text { color: var(--danger); font-weight: 700; }
+</style>
+
 @section Scripts {
 <script>
-async function updateProgress() {
+const ORDER_ID     = @Model.Id;
+const IS_INPROGRESS = @(isInProgress ? "true" : "false");
+const TOTAL_SEC    = @totalSeconds.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+const ELAPSED_SEC  = @elapsedSeconds.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+const QUANTITY     = @Model.Quantity;
+
+// --- Авто-тикер прогресса (только для InProgress с ActualStartDate) ---
+if (IS_INPROGRESS && TOTAL_SEC > 0) {
+    let clientElapsed = ELAPSED_SEC; // синхронизируем с сервером при загрузке
+
+    function formatTime(sec) {
+        sec = Math.max(0, sec);
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = Math.floor(sec % 60);
+        if (h > 0) return `${h}ч ${String(m).padStart(2,'0')}м ${String(s).padStart(2,'0')}с`;
+        if (m > 0) return `${m}м ${String(s).padStart(2,'0')}с`;
+        return `${s}с`;
+    }
+
+    function updateUI(progress) {
+        const pct = Math.min(progress, 100);
+        const bar = document.getElementById('progressBar');
+        const txt = document.getElementById('progressText');
+        if (bar) {
+            bar.style.width = pct + '%';
+            // Цвет в зависимости от прогресса
+            bar.className = 'progress-bar-fill ' + (pct > 60 ? 'green' : pct > 30 ? 'orange' : 'blue');
+        }
+        if (txt) txt.textContent = pct + '%';
+
+        // Произведено штук (дробно)
+        const produced = Math.min((pct / 100) * QUANTITY, QUANTITY);
+        const el = document.getElementById('producedUnits');
+        if (el) el.textContent = produced.toFixed(2) + ' / ' + QUANTITY + ' шт';
+    }
+
+    function tick() {
+        clientElapsed += 1;
+        const pct = Math.min(Math.round(clientElapsed / TOTAL_SEC * 100), 100);
+        const remain = TOTAL_SEC - clientElapsed;
+
+        updateUI(pct);
+
+        const elEl = document.getElementById('elapsedTime');
+        const rmEl = document.getElementById('remainTime');
+        if (elEl) elEl.textContent = formatTime(clientElapsed);
+        if (rmEl) rmEl.textContent = remain > 0 ? formatTime(remain) : '00с';
+
+        // Каждые 5 секунд синхронизируем с сервером (сохраняем в БД)
+        if (Math.round(clientElapsed) % 5 === 0) {
+            syncWithServer();
+        }
+    }
+
+    async function syncWithServer() {
+        try {
+            const resp = await fetch(`/api/orders/${ORDER_ID}/progress/auto`);
+            if (!resp.ok) return;
+            const data = await resp.json();
+
+            if (data.status === 'Completed') {
+                // Заказ завершён — перезагружаем страницу
+                window.location.reload();
+                return;
+            }
+            // Корректируем clientElapsed по серверному времени
+            if (data.autoCalc && data.elapsedMinutes != null) {
+                clientElapsed = data.elapsedMinutes * 60;
+            }
+        } catch(e) {
+            console.warn('Sync error:', e);
+        }
+    }
+
+    // Запускаем тикер
+    const timer = setInterval(tick, 1000);
+    // Первая синхронизация через 1 сек
+    setTimeout(syncWithServer, 1000);
+}
+
+// --- Ручная установка прогресса ---
+async function setProgressManual() {
     const val = parseInt(document.getElementById('progressInput').value);
     if (isNaN(val) || val < 0 || val > 100) {
         alert('Введите значение от 0 до 100');
         return;
     }
-    const resp = await fetch('/api/orders/@Model.Id/progress', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ percent: val })
-    });
-    if (resp.ok) {
-        window.location.reload();
-    } else {
-        alert('Ошибка при обновлении прогресса');
+    try {
+        const resp = await fetch(`/api/orders/${ORDER_ID}/progress`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ percent: val })
+        });
+        if (resp.ok) {
+            // Показываем кратко что сохранено, не перезагружаем
+            const btn = event.target;
+            const orig = btn.textContent;
+            btn.textContent = '✓ Сохранено';
+            btn.disabled = true;
+            setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1500);
+        } else {
+            alert('Ошибка при сохранении прогресса');
+        }
+    } catch(e) {
+        alert('Ошибка соединения');
     }
 }
 </script>

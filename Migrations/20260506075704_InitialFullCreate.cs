@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace ProductionSystem.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate : Migration
+    public partial class InitialFullCreate : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -98,6 +98,7 @@ namespace ProductionSystem.Migrations
                     ProductionLineId = table.Column<int>(type: "INTEGER", nullable: true),
                     Quantity = table.Column<int>(type: "INTEGER", nullable: false),
                     StartDate = table.Column<DateTime>(type: "TEXT", nullable: false),
+                    ActualStartDate = table.Column<DateTime>(type: "TEXT", nullable: true),
                     EstimatedEndDate = table.Column<DateTime>(type: "TEXT", nullable: false),
                     Status = table.Column<string>(type: "TEXT", nullable: false),
                     Progress = table.Column<int>(type: "INTEGER", nullable: false)
@@ -166,11 +167,11 @@ namespace ProductionSystem.Migrations
 
             migrationBuilder.InsertData(
                 table: "WorkOrders",
-                columns: new[] { "Id", "EstimatedEndDate", "ProductId", "ProductionLineId", "Progress", "Quantity", "StartDate", "Status" },
+                columns: new[] { "Id", "ActualStartDate", "EstimatedEndDate", "ProductId", "ProductionLineId", "Progress", "Quantity", "StartDate", "Status" },
                 values: new object[,]
                 {
-                    { 1, new DateTime(2026, 5, 7, 12, 53, 50, 578, DateTimeKind.Local).AddTicks(7336), 1, 1, 40, 10, new DateTime(2026, 4, 30, 12, 53, 50, 578, DateTimeKind.Local).AddTicks(7331), "InProgress" },
-                    { 2, new DateTime(2026, 5, 5, 12, 53, 50, 578, DateTimeKind.Local).AddTicks(7341), 2, null, 0, 5, new DateTime(2026, 5, 3, 12, 53, 50, 578, DateTimeKind.Local).AddTicks(7340), "Pending" }
+                    { 1, null, new DateTime(2025, 1, 20, 9, 0, 0, 0, DateTimeKind.Unspecified), 1, 1, 0, 10, new DateTime(2025, 1, 10, 9, 0, 0, 0, DateTimeKind.Unspecified), "Pending" },
+                    { 2, null, new DateTime(2025, 1, 18, 9, 0, 0, 0, DateTimeKind.Unspecified), 2, null, 0, 5, new DateTime(2025, 1, 15, 9, 0, 0, 0, DateTimeKind.Unspecified), "Pending" }
                 });
 
             migrationBuilder.CreateIndex(

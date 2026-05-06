@@ -108,6 +108,9 @@ namespace ProductionSystem.Models
         [Display(Name = "Дата начала")]
         public DateTime StartDate { get; set; } = DateTime.Now;
 
+        /// <summary>Точная дата фактического запуска (заполняется при нажатии «Запустить»)</summary>
+        public DateTime? ActualStartDate { get; set; }
+
         [Display(Name = "Расчётная дата завершения")]
         public DateTime EstimatedEndDate { get; set; }
 

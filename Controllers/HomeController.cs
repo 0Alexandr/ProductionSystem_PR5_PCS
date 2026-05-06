@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ProductionSystem.Data;
+using ProductionSystem.Models;
 
 namespace ProductionSystem.Controllers
 {

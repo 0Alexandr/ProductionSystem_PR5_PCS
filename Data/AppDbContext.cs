@@ -40,7 +40,11 @@ namespace ProductionSystem.Data
                 .HasForeignKey(pl => pl.CurrentWorkOrderId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-            // Seed data
+            // -------------------------------------------------------
+            // Seed — ТОЛЬКО константные значения (без DateTime.Now)!
+            // EF Core требует фиксированные значения в HasData.
+            // -------------------------------------------------------
+
             modelBuilder.Entity<Material>().HasData(
                 new Material { Id = 1, Name = "Сталь листовая", Quantity = 500, UnitOfMeasure = "кг", MinimalStock = 100 },
                 new Material { Id = 2, Name = "Алюминий", Quantity = 80, UnitOfMeasure = "кг", MinimalStock = 150 },
@@ -63,27 +67,38 @@ namespace ProductionSystem.Data
 
             modelBuilder.Entity<ProductMaterial>().HasData(
                 new ProductMaterial { ProductId = 1, MaterialId = 1, QuantityNeeded = 5.5m },
-                new ProductMaterial { ProductId = 1, MaterialId = 3, QuantityNeeded = 8 },
+                new ProductMaterial { ProductId = 1, MaterialId = 3, QuantityNeeded = 8m },
                 new ProductMaterial { ProductId = 2, MaterialId = 2, QuantityNeeded = 3.2m },
-                new ProductMaterial { ProductId = 2, MaterialId = 3, QuantityNeeded = 12 },
+                new ProductMaterial { ProductId = 2, MaterialId = 3, QuantityNeeded = 12m },
                 new ProductMaterial { ProductId = 3, MaterialId = 1, QuantityNeeded = 2.0m },
-                new ProductMaterial { ProductId = 3, MaterialId = 3, QuantityNeeded = 4 }
+                new ProductMaterial { ProductId = 3, MaterialId = 3, QuantityNeeded = 4m }
             );
 
+            // WorkOrder seed — фиксированные даты (константа, не DateTime.Now)
             modelBuilder.Entity<WorkOrder>().HasData(
                 new WorkOrder
                 {
-                    Id = 1, ProductId = 1, ProductionLineId = 1, Quantity = 10,
-                    StartDate = DateTime.Now.AddDays(-2),
-                    EstimatedEndDate = DateTime.Now.AddDays(5),
-                    Status = "InProgress", Progress = 40
+                    Id = 1,
+                    ProductId = 1,
+                    ProductionLineId = 1,
+                    Quantity = 10,
+                    StartDate = new DateTime(2025, 1, 10, 9, 0, 0),
+                    EstimatedEndDate = new DateTime(2025, 1, 20, 9, 0, 0),
+                    ActualStartDate = null,
+                    Status = "Pending",
+                    Progress = 0
                 },
                 new WorkOrder
                 {
-                    Id = 2, ProductId = 2, ProductionLineId = null, Quantity = 5,
-                    StartDate = DateTime.Now.AddDays(1),
-                    EstimatedEndDate = DateTime.Now.AddDays(3),
-                    Status = "Pending", Progress = 0
+                    Id = 2,
+                    ProductId = 2,
+                    ProductionLineId = null,
+                    Quantity = 5,
+                    StartDate = new DateTime(2025, 1, 15, 9, 0, 0),
+                    EstimatedEndDate = new DateTime(2025, 1, 18, 9, 0, 0),
+                    ActualStartDate = null,
+                    Status = "Pending",
+                    Progress = 0
                 }
             );
         }

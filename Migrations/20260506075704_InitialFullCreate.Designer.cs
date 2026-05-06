@@ -11,8 +11,8 @@ using ProductionSystem.Data;
 namespace ProductionSystem.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260502095350_InitialCreate")]
-    partial class InitialCreate
+    [Migration("20260506075704_InitialFullCreate")]
+    partial class InitialFullCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -258,6 +258,9 @@ namespace ProductionSystem.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime?>("ActualStartDate")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("EstimatedEndDate")
                         .HasColumnType("TEXT");
 
@@ -292,22 +295,22 @@ namespace ProductionSystem.Migrations
                         new
                         {
                             Id = 1,
-                            EstimatedEndDate = new DateTime(2026, 5, 7, 12, 53, 50, 578, DateTimeKind.Local).AddTicks(7336),
+                            EstimatedEndDate = new DateTime(2025, 1, 20, 9, 0, 0, 0, DateTimeKind.Unspecified),
                             ProductId = 1,
                             ProductionLineId = 1,
-                            Progress = 40,
+                            Progress = 0,
                             Quantity = 10,
-                            StartDate = new DateTime(2026, 4, 30, 12, 53, 50, 578, DateTimeKind.Local).AddTicks(7331),
-                            Status = "InProgress"
+                            StartDate = new DateTime(2025, 1, 10, 9, 0, 0, 0, DateTimeKind.Unspecified),
+                            Status = "Pending"
                         },
                         new
                         {
                             Id = 2,
-                            EstimatedEndDate = new DateTime(2026, 5, 5, 12, 53, 50, 578, DateTimeKind.Local).AddTicks(7341),
+                            EstimatedEndDate = new DateTime(2025, 1, 18, 9, 0, 0, 0, DateTimeKind.Unspecified),
                             ProductId = 2,
                             Progress = 0,
                             Quantity = 5,
-                            StartDate = new DateTime(2026, 5, 3, 12, 53, 50, 578, DateTimeKind.Local).AddTicks(7340),
+                            StartDate = new DateTime(2025, 1, 15, 9, 0, 0, 0, DateTimeKind.Unspecified),
                             Status = "Pending"
                         });
                 });

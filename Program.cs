@@ -9,11 +9,24 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 var app = builder.Build();
 
-// Auto-migrate and seed
+// При запуске — применяем все миграции.
+// Если БД несовместима (старая схема) — удаляем и пересоздаём с нуля.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.Migrate();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        db.Database.Migrate();
+        logger.LogInformation("Database migrated successfully.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Migration failed — deleting and recreating database.");
+        db.Database.EnsureDeleted();
+        db.Database.Migrate();
+        logger.LogInformation("Database recreated successfully.");
+    }
 }
 
 if (!app.Environment.IsDevelopment())

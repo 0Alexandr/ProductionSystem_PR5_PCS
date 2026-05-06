@@ -51,7 +51,6 @@ namespace ProductionSystem.Controllers
         {
             if (ModelState.IsValid)
             {
-                // Check materials availability
                 var product = await _db.Products
                     .Include(p => p.ProductMaterials)
                     .ThenInclude(pm => pm.Material)
@@ -66,13 +65,9 @@ namespace ProductionSystem.Controllers
                         if (pm.Material!.Quantity < needed)
                             shortages.Add($"«{pm.Material.Name}»: нужно {needed}, доступно {pm.Material.Quantity} {pm.Material.UnitOfMeasure}");
                     }
-
                     if (shortages.Any())
-                    {
                         TempData["Warning"] = "Недостаточно материалов: " + string.Join("; ", shortages);
-                    }
 
-                    // Auto-calculate end date
                     var line = order.ProductionLineId.HasValue
                         ? await _db.ProductionLines.FindAsync(order.ProductionLineId)
                         : null;
@@ -83,7 +78,7 @@ namespace ProductionSystem.Controllers
 
                 _db.WorkOrders.Add(order);
                 await _db.SaveChangesAsync();
-                TempData["Success"] = $"Заказ №{order.Id} создан.";
+                TempData["Success"] = $"Заказ #{order.Id} создан.";
                 return RedirectToAction(nameof(Index));
             }
 
@@ -121,18 +116,26 @@ namespace ProductionSystem.Controllers
 
             if (order.Status == "Pending")
             {
+                var now = DateTime.Now;
                 order.Status = "InProgress";
-                order.StartDate = DateTime.Now;
+                order.ActualStartDate = now;
+                order.StartDate = now;
 
-                // Update line
-                if (order.ProductionLineId.HasValue)
+                var line = order.ProductionLineId.HasValue
+                    ? await _db.ProductionLines.FindAsync(order.ProductionLineId)
+                    : null;
+
+                if (order.Product != null)
                 {
-                    var line = await _db.ProductionLines.FindAsync(order.ProductionLineId);
-                    if (line != null)
-                    {
-                        line.CurrentWorkOrderId = order.Id;
-                        line.Status = "Active";
-                    }
+                    var efficiency = line?.EfficiencyFactor ?? 1.0f;
+                    var totalMinutes = (order.Product.ProductionTimePerUnit * order.Quantity) / efficiency;
+                    order.EstimatedEndDate = now.AddMinutes(totalMinutes);
+                }
+
+                if (line != null)
+                {
+                    line.CurrentWorkOrderId = order.Id;
+                    line.Status = "Active";
                 }
 
                 // Deduct materials
@@ -146,7 +149,7 @@ namespace ProductionSystem.Controllers
                 }
 
                 await _db.SaveChangesAsync();
-                TempData["Success"] = $"Заказ №{order.Id} запущен в производство.";
+                TempData["Success"] = $"Заказ #{order.Id} запущен в производство.";
             }
 
             return RedirectToAction(nameof(Index));
@@ -157,11 +160,59 @@ namespace ProductionSystem.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Cancel(int id)
         {
-            var order = await _db.WorkOrders.FindAsync(id);
+            var order = await _db.WorkOrders
+                .Include(o => o.Product)
+                .ThenInclude(p => p!.ProductMaterials)
+                .ThenInclude(pm => pm.Material)
+                .FirstOrDefaultAsync(o => o.Id == id);
+
             if (order == null) return NotFound();
 
-            if (order.Status != "Completed")
+            if (order.Status != "Completed" && order.Status != "Cancelled")
             {
+                string refundMsg = "";
+
+                if (order.Status == "InProgress" && order.Product != null && order.ActualStartDate.HasValue)
+                {
+                    // Получаем коэффициент эффективности линии
+                    var line = order.ProductionLineId.HasValue
+                        ? await _db.ProductionLines.FindAsync(order.ProductionLineId)
+                        : null;
+                    var efficiency = (double)(line?.EfficiencyFactor ?? 1.0f);
+
+                    // Время на одну единицу с учётом эффективности (в минутах)
+                    var timePerUnitAdjusted = order.Product.ProductionTimePerUnit / efficiency;
+
+                    // Сколько минут прошло с фактического запуска
+                    var elapsedMinutes = (DateTime.Now - order.ActualStartDate.Value).TotalMinutes;
+
+                    // Сколько штук произведено (дробное)
+                    double producedUnits = timePerUnitAdjusted > 0
+                        ? elapsedMinutes / timePerUnitAdjusted
+                        : order.Quantity;
+                    producedUnits = Math.Min(producedUnits, order.Quantity);
+                    producedUnits = Math.Max(producedUnits, 0);
+
+                    // Непроизведённая часть → возврат
+                    double unproducedUnits = order.Quantity - producedUnits;
+
+                    var refundDetails = new List<string>();
+                    foreach (var pm in order.Product.ProductMaterials)
+                    {
+                        var refund = (decimal)unproducedUnits * pm.QuantityNeeded;
+                        if (refund > 0)
+                        {
+                            pm.Material!.Quantity += refund;
+                            refundDetails.Add($"{pm.Material.Name}: +{refund:F3} {pm.Material.UnitOfMeasure}");
+                        }
+                    }
+
+                    order.Progress = (int)Math.Round(producedUnits / order.Quantity * 100);
+
+                    if (refundDetails.Any())
+                        refundMsg = " Возвращено: " + string.Join(", ", refundDetails) + ".";
+                }
+
                 order.Status = "Cancelled";
 
                 if (order.ProductionLineId.HasValue)
@@ -172,7 +223,7 @@ namespace ProductionSystem.Controllers
                 }
 
                 await _db.SaveChangesAsync();
-                TempData["Success"] = $"Заказ №{order.Id} отменён.";
+                TempData["Success"] = $"Заказ #{order.Id} отменён." + refundMsg;
             }
 
             return RedirectToAction(nameof(Index));
@@ -199,7 +250,7 @@ namespace ProductionSystem.Controllers
                 }
 
                 await _db.SaveChangesAsync();
-                TempData["Success"] = $"Заказ №{order.Id} завершён.";
+                TempData["Success"] = $"Заказ #{order.Id} завершён.";
             }
 
             return RedirectToAction(nameof(Index));
@@ -211,13 +262,17 @@ namespace ProductionSystem.Controllers
         public async Task<IActionResult> ApiGetOrders(string? status, string? date)
         {
             var query = _db.WorkOrders.Include(o => o.Product).Include(o => o.ProductionLine).AsQueryable();
-
             if (status == "active") query = query.Where(o => o.Status == "InProgress");
             if (date == "today") query = query.Where(o => o.StartDate.Date == DateTime.Today);
 
             var result = await query.Select(o => new
             {
-                o.Id, o.Status, o.Quantity, o.StartDate, o.EstimatedEndDate, o.Progress,
+                o.Id,
+                o.Status,
+                o.Quantity,
+                o.StartDate,
+                o.EstimatedEndDate,
+                o.Progress,
                 product = o.Product!.Name,
                 line = o.ProductionLine != null ? o.ProductionLine.Name : null
             }).ToListAsync();
@@ -249,6 +304,7 @@ namespace ProductionSystem.Controllers
             return Json(new { order.Id, order.Status, order.EstimatedEndDate });
         }
 
+        // PUT /api/orders/{id}/progress  — ручное обновление
         [HttpPut("/api/orders/{id}/progress")]
         public async Task<IActionResult> ApiUpdateProgress(int id, [FromBody] ProgressDto dto)
         {
@@ -259,6 +315,58 @@ namespace ProductionSystem.Controllers
             return Json(new { order.Id, order.Progress });
         }
 
+        // GET /api/orders/{id}/progress/auto — авторасчёт по времени (вызывается каждую секунду)
+        [HttpGet("/api/orders/{id}/progress/auto")]
+        public async Task<IActionResult> ApiAutoProgress(int id)
+        {
+            var order = await _db.WorkOrders
+                .Include(o => o.Product)
+                .Include(o => o.ProductionLine)
+                .FirstOrDefaultAsync(o => o.Id == id);
+
+            if (order == null) return NotFound();
+
+            if (order.Status != "InProgress" || !order.ActualStartDate.HasValue)
+                return Json(new { order.Id, order.Progress, order.Status, autoCalc = false });
+
+            var efficiency = (double)(order.ProductionLine?.EfficiencyFactor ?? 1.0f);
+            var totalMinutes = order.Product!.ProductionTimePerUnit * order.Quantity / efficiency;
+            var elapsed = (DateTime.Now - order.ActualStartDate.Value).TotalMinutes;
+
+            int newProgress = totalMinutes > 0
+                ? (int)Math.Min(Math.Round(elapsed / totalMinutes * 100), 100)
+                : 100;
+
+            if (newProgress >= 100)
+            {
+                order.Progress = 100;
+                order.Status = "Completed";
+                if (order.ProductionLineId.HasValue)
+                {
+                    var line = await _db.ProductionLines.FindAsync(order.ProductionLineId);
+                    if (line != null && line.CurrentWorkOrderId == order.Id)
+                        line.CurrentWorkOrderId = null;
+                }
+            }
+            else
+            {
+                order.Progress = newProgress;
+            }
+
+            await _db.SaveChangesAsync();
+
+            return Json(new
+            {
+                order.Id,
+                order.Progress,
+                order.Status,
+                autoCalc = true,
+                totalMinutes = Math.Round(totalMinutes, 1),
+                elapsedMinutes = Math.Round(elapsed, 2)
+            });
+        }
+
+        // GET /api/orders/{id}/details
         [HttpGet("/api/orders/{id}/details")]
         public async Task<IActionResult> ApiGetDetails(int id)
         {
@@ -271,7 +379,13 @@ namespace ProductionSystem.Controllers
 
             return Json(new
             {
-                order.Id, order.Status, order.Quantity, order.StartDate, order.EstimatedEndDate, order.Progress,
+                order.Id,
+                order.Status,
+                order.Quantity,
+                order.StartDate,
+                order.EstimatedEndDate,
+                order.Progress,
+                order.ActualStartDate,
                 product = new { order.Product!.Id, order.Product.Name, order.Product.ProductionTimePerUnit },
                 line = order.ProductionLine != null ? new { order.ProductionLine.Id, order.ProductionLine.Name } : null
             });
