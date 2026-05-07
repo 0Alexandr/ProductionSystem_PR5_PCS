@@ -139,3 +139,19 @@ dotnet run
 ```
 
 Пример: 10 ед. × 45 мин/шт ÷ 1.2 = **375 минут (6 ч 15 мин)**
+
+
+## Удаление и создание БД с нуля
+
+1. Удалить вручную .db и папку migrations
+
+2. Создайте одну чистую миграцию
+
+```bash
+dotnet ef migrations add InitialFullCreate
+```
+3. Создайте файл базы данных
+
+```bash
+dotnet ef database update
+```
