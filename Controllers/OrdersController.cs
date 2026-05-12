@@ -14,6 +14,131 @@ namespace ProductionSystem.Controllers
             _db = db;
         }
 
+        private static double GetProductionMinutes(WorkOrder order, Product product, ProductionLine? line)
+        {
+            var efficiency = line?.EfficiencyFactor ?? 1.0f;
+            if (efficiency <= 0) efficiency = 1.0f;
+
+            return (product.ProductionTimePerUnit * order.Quantity) / efficiency;
+        }
+
+        private async Task RebuildLineQueueAsync(int lineId, int? excludeOrderId = null)
+        {
+            var now = DateTime.Now;
+            var line = await _db.ProductionLines.FindAsync(lineId);
+            if (line == null) return;
+
+            var activeOrder = await _db.WorkOrders
+                .Include(o => o.Product)
+                .Where(o => o.ProductionLineId == lineId && o.Status == "InProgress")
+                .OrderBy(o => o.ActualStartDate ?? o.StartDate)
+                .FirstOrDefaultAsync();
+
+            if (activeOrder != null)
+            {
+                line.CurrentWorkOrderId = activeOrder.Id;
+            }
+            else if (line.CurrentWorkOrderId.HasValue)
+            {
+                line.CurrentWorkOrderId = null;
+            }
+
+            var nextStart = activeOrder?.EstimatedEndDate > now
+                ? activeOrder.EstimatedEndDate
+                : now;
+
+            var queuedOrders = await _db.WorkOrders
+                .Include(o => o.Product)
+                .Where(o =>
+                    o.ProductionLineId == lineId &&
+                    o.Status == "Pending" &&
+                    (!excludeOrderId.HasValue || o.Id != excludeOrderId.Value))
+                .OrderBy(o => o.StartDate)
+                .ThenBy(o => o.Id)
+                .ToListAsync();
+
+            foreach (var queuedOrder in queuedOrders)
+            {
+                if (queuedOrder.Product == null) continue;
+
+                if (queuedOrder.StartDate < nextStart)
+                    queuedOrder.StartDate = nextStart;
+
+                queuedOrder.EstimatedEndDate = queuedOrder.StartDate
+                    .AddMinutes(GetProductionMinutes(queuedOrder, queuedOrder.Product, line));
+
+                nextStart = queuedOrder.EstimatedEndDate;
+            }
+        }
+
+        private async Task<bool> TryStartOrderAsync(WorkOrder order, DateTime startTime)
+        {
+            if (order.Product == null) return false;
+
+            var line = order.ProductionLineId.HasValue
+                ? await _db.ProductionLines.FindAsync(order.ProductionLineId.Value)
+                : null;
+
+            var runningOrderExists = order.ProductionLineId.HasValue &&
+                await _db.WorkOrders.AnyAsync(o =>
+                    o.Id != order.Id &&
+                    o.ProductionLineId == order.ProductionLineId &&
+                    o.Status == "InProgress");
+
+            var earlierQueuedOrderExists = order.ProductionLineId.HasValue &&
+                await _db.WorkOrders.AnyAsync(o =>
+                    o.Id != order.Id &&
+                    o.ProductionLineId == order.ProductionLineId &&
+                    o.Status == "Pending" &&
+                    (o.StartDate < order.StartDate ||
+                     (o.StartDate == order.StartDate && o.Id < order.Id)));
+
+            if (line?.CurrentWorkOrderId != null || runningOrderExists || earlierQueuedOrderExists)
+                return false;
+
+            order.Status = "InProgress";
+            order.ActualStartDate = startTime;
+            order.StartDate = startTime;
+            order.Progress = 0;
+            order.EstimatedEndDate = startTime.AddMinutes(GetProductionMinutes(order, order.Product, line));
+
+            if (line != null)
+            {
+                line.CurrentWorkOrderId = order.Id;
+                line.Status = "Active";
+            }
+
+            foreach (var pm in order.Product.ProductMaterials)
+            {
+                pm.Material!.Quantity -= pm.QuantityNeeded * order.Quantity;
+                if (pm.Material.Quantity < 0) pm.Material.Quantity = 0;
+            }
+
+            return true;
+        }
+
+        private async Task<bool> StartNextQueuedOrderAsync(int lineId)
+        {
+            await RebuildLineQueueAsync(lineId);
+
+            var line = await _db.ProductionLines.FindAsync(lineId);
+            if (line?.CurrentWorkOrderId != null)
+                return false;
+
+            var nextOrder = await _db.WorkOrders
+                .Include(o => o.Product)
+                .ThenInclude(p => p!.ProductMaterials)
+                .ThenInclude(pm => pm.Material)
+                .Where(o => o.ProductionLineId == lineId && o.Status == "Pending")
+                .OrderBy(o => o.StartDate)
+                .ThenBy(o => o.Id)
+                .FirstOrDefaultAsync();
+
+            if (nextOrder == null) return false;
+
+            return await TryStartOrderAsync(nextOrder, DateTime.Now);
+        }
+
         // GET /Orders
         public async Task<IActionResult> Index(string? status, string? date)
         {
@@ -71,13 +196,16 @@ namespace ProductionSystem.Controllers
                     var line = order.ProductionLineId.HasValue
                         ? await _db.ProductionLines.FindAsync(order.ProductionLineId)
                         : null;
-                    var efficiency = line?.EfficiencyFactor ?? 1.0f;
-                    var totalMinutes = (product.ProductionTimePerUnit * order.Quantity) / efficiency;
-                    order.EstimatedEndDate = order.StartDate.AddMinutes(totalMinutes);
+                    order.EstimatedEndDate = order.StartDate.AddMinutes(GetProductionMinutes(order, product, line));
                 }
 
                 _db.WorkOrders.Add(order);
                 await _db.SaveChangesAsync();
+                if (order.ProductionLineId.HasValue)
+                {
+                    await RebuildLineQueueAsync(order.ProductionLineId.Value);
+                    await _db.SaveChangesAsync();
+                }
                 TempData["Success"] = $"Заказ #{order.Id} создан.";
                 return RedirectToAction(nameof(Index));
             }
@@ -116,40 +244,22 @@ namespace ProductionSystem.Controllers
 
             if (order.Status == "Pending")
             {
-                var now = DateTime.Now;
-                order.Status = "InProgress";
-                order.ActualStartDate = now;
-                order.StartDate = now;
-
-                var line = order.ProductionLineId.HasValue
-                    ? await _db.ProductionLines.FindAsync(order.ProductionLineId)
-                    : null;
-
-                if (order.Product != null)
+                var requestedStart = DateTime.Now;
+                if (await TryStartOrderAsync(order, requestedStart))
                 {
-                    var efficiency = line?.EfficiencyFactor ?? 1.0f;
-                    var totalMinutes = (order.Product.ProductionTimePerUnit * order.Quantity) / efficiency;
-                    order.EstimatedEndDate = now.AddMinutes(totalMinutes);
+                    await _db.SaveChangesAsync();
+                    TempData["Success"] = $"Заказ #{order.Id} запущен в производство.";
+                    return RedirectToAction(nameof(Index));
                 }
 
-                if (line != null)
+                if (order.ProductionLineId.HasValue)
                 {
-                    line.CurrentWorkOrderId = order.Id;
-                    line.Status = "Active";
+                    await RebuildLineQueueAsync(order.ProductionLineId.Value);
+                    await _db.SaveChangesAsync();
                 }
 
-                // Deduct materials
-                if (order.Product != null)
-                {
-                    foreach (var pm in order.Product.ProductMaterials)
-                    {
-                        pm.Material!.Quantity -= pm.QuantityNeeded * order.Quantity;
-                        if (pm.Material.Quantity < 0) pm.Material.Quantity = 0;
-                    }
-                }
-
-                await _db.SaveChangesAsync();
-                TempData["Success"] = $"Заказ #{order.Id} запущен в производство.";
+                TempData["Warning"] = $"Заказ #{order.Id} добавлен в очередь: линия уже занята.";
+                return RedirectToAction(nameof(Index));
             }
 
             return RedirectToAction(nameof(Index));
@@ -215,11 +325,15 @@ namespace ProductionSystem.Controllers
 
                 order.Status = "Cancelled";
 
-                if (order.ProductionLineId.HasValue)
+                var cancelledLineId = order.ProductionLineId;
+                if (cancelledLineId.HasValue)
                 {
-                    var line = await _db.ProductionLines.FindAsync(order.ProductionLineId);
+                    var line = await _db.ProductionLines.FindAsync(cancelledLineId.Value);
                     if (line != null && line.CurrentWorkOrderId == order.Id)
                         line.CurrentWorkOrderId = null;
+
+                    await RebuildLineQueueAsync(cancelledLineId.Value, order.Id);
+                    await StartNextQueuedOrderAsync(cancelledLineId.Value);
                 }
 
                 await _db.SaveChangesAsync();
@@ -242,11 +356,15 @@ namespace ProductionSystem.Controllers
                 order.Status = "Completed";
                 order.Progress = 100;
 
-                if (order.ProductionLineId.HasValue)
+                var completedLineId = order.ProductionLineId;
+                if (completedLineId.HasValue)
                 {
-                    var line = await _db.ProductionLines.FindAsync(order.ProductionLineId);
+                    var line = await _db.ProductionLines.FindAsync(completedLineId.Value);
                     if (line != null && line.CurrentWorkOrderId == order.Id)
                         line.CurrentWorkOrderId = null;
+
+                    await RebuildLineQueueAsync(completedLineId.Value, order.Id);
+                    await StartNextQueuedOrderAsync(completedLineId.Value);
                 }
 
                 await _db.SaveChangesAsync();
@@ -304,8 +422,6 @@ namespace ProductionSystem.Controllers
             if (product == null) return BadRequest("Product not found");
 
             var line = dto.LineId.HasValue ? await _db.ProductionLines.FindAsync(dto.LineId) : null;
-            var efficiency = line?.EfficiencyFactor ?? 1.0f;
-            var totalMinutes = (product.ProductionTimePerUnit * dto.Quantity) / efficiency;
 
             var order = new WorkOrder
             {
@@ -313,11 +429,16 @@ namespace ProductionSystem.Controllers
                 ProductionLineId = dto.LineId,
                 Quantity = dto.Quantity,
                 StartDate = DateTime.Now,
-                EstimatedEndDate = DateTime.Now.AddMinutes(totalMinutes),
                 Status = "Pending"
             };
+            order.EstimatedEndDate = order.StartDate.AddMinutes(GetProductionMinutes(order, product, line));
             _db.WorkOrders.Add(order);
             await _db.SaveChangesAsync();
+            if (order.ProductionLineId.HasValue)
+            {
+                await RebuildLineQueueAsync(order.ProductionLineId.Value);
+                await _db.SaveChangesAsync();
+            }
             return Json(new { order.Id, order.Status, order.EstimatedEndDate });
         }
 
@@ -360,9 +481,13 @@ namespace ProductionSystem.Controllers
                 order.Status = "Completed";
                 if (order.ProductionLineId.HasValue)
                 {
-                    var line = await _db.ProductionLines.FindAsync(order.ProductionLineId);
+                    var lineId = order.ProductionLineId.Value;
+                    var line = await _db.ProductionLines.FindAsync(lineId);
                     if (line != null && line.CurrentWorkOrderId == order.Id)
                         line.CurrentWorkOrderId = null;
+
+                    await RebuildLineQueueAsync(lineId, order.Id);
+                    await StartNextQueuedOrderAsync(lineId);
                 }
             }
             else
